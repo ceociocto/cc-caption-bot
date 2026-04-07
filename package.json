@@ -1,0 +1,17 @@
+{
+  "name": "zoom-cc-capture-demo",
+  "version": "1.0.0",
+  "description": "Zoom Meeting SDK demo: join meeting, capture CC captions in real-time, save to SQLite",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "generate-jwt": "node jwt.js"
+  },
+  "dependencies": {
+    "@zoom/meetingsdk": "^5.1.4",
+    "sql.js": "^1.11.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
