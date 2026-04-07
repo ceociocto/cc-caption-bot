@@ -370,8 +370,9 @@ ipcMain.handle('db-export-captions-json', (_, { meetingId }) => {
 
 // ─── App Lifecycle ───────────────────────────────────────
 app.on('ready', async () => {
-  initDB();
+  await initDB();
   await startHTTPServer();
+  console.log('[ENV] Config loaded:', JSON.stringify(envConfig, null, 2));
   createWindow();
 });
 

@@ -40,9 +40,10 @@ function initZoomSDK() {
     return;
   }
 
-  // Set asset path only — defer preLoadWasm/prepareWebSDK to join time
-  // to avoid SDK injecting full-page overlay on startup
-  ZoomMtg.setZoomJSLib('/zoom-sdk/lib', '/av');
+  // Use full URL for lib path (avoids "Invalid URL" in js_media.min.js)
+  // Second param stays relative — SDK concatenates: libPath + avPath + "/js_media.min.js"
+  const sdkBaseUrl = `${window.location.origin}/zoom-sdk/lib`;
+  ZoomMtg.setZoomJSLib(sdkBaseUrl, '/av');
 
   setStatus('Ready to join');
   console.log('[ZoomSDK] Configured, local: /zoom-sdk/lib');
@@ -129,6 +130,11 @@ function registerMeetingListeners() {
   // --- Live transcription toggle ---
   ZoomMtg.inMeetingServiceListener('onLiveTranscriptionOn', onLiveTranscriptionToggle);
 
+  // --- Translation ---
+  ZoomMtg.inMeetingServiceListener('onReceiveTranslateMsg', (data) => {
+    console.log('[Translation] Received:', JSON.stringify(data));
+  });
+
   // --- Participant events ---
   ZoomMtg.inMeetingServiceListener('onUserJoin', onUserJoin);
   ZoomMtg.inMeetingServiceListener('onUserLeave', onUserLeave);
@@ -144,12 +150,18 @@ function registerMeetingListeners() {
 
 // ─── Caption Handlers ────────────────────────────────────
 
-function onTranscriptionReceived(data) {
-  // onReceiveTranscriptionMsg fires for both CC and AI live transcription
-  console.log('[Transcription] Received:', JSON.stringify(data));
+// Deduplicate by msgId — SDK may send same caption multiple times
+const _seenMsgIds = new Set();
 
+function onTranscriptionReceived(data) {
   const caption = parseCaptionData(data);
   if (!caption.text) return;
+
+  // Deduplicate: skip if we've already processed this msgId
+  if (caption.msgId && _seenMsgIds.has(caption.msgId) && caption.done) return;
+  if (caption.msgId) _seenMsgIds.add(caption.msgId);
+
+  console.log('[Caption]', caption.speaker, ':', caption.text, caption.done ? '(done)' : '');
 
   addCaptionToUI(caption);
   saveCaptionToDB(caption, caption.captionType || 'transcription');
@@ -162,25 +174,21 @@ function onLiveTranscriptionToggle(data) {
 
 /**
  * Parse transcription data from Zoom SDK onReceiveTranscriptionMsg event.
- * Logs raw data on first call so we can adjust if the format differs.
+ * Actual data format: { text, displayName, userId, msgId, messageTime, lang, done }
  */
-let _firstTranscriptionLogged = false;
 function parseCaptionData(data) {
-  if (!_firstTranscriptionLogged) {
-    console.log('[Transcription] Raw data structure:', JSON.stringify(data));
-    _firstTranscriptionLogged = true;
-  }
-
   // data may be string (JSON) or object
   if (typeof data === 'string') {
     try { data = JSON.parse(data); } catch (_) {}
   }
 
   return {
-    text: data.captionMsg || data.msg || data.text || data.message || data.ttstext || '',
-    speaker: data.speakerName || data.speaker || data.userName || data.senderName || '',
-    captionType: data.captionType || data.type || (data.isLive ? 'live-transcription' : 'cc'),
-    timestamp: data.ttstime || data.timestamp || new Date().toISOString(),
+    text: data.text || data.captionMsg || data.msg || data.message || data.ttstext || '',
+    speaker: data.displayName || data.speakerName || data.speaker || data.userName || data.senderName || '',
+    msgId: data.msgId || '',
+    done: !!data.done,
+    captionType: data.captionType || data.type || 'live-transcription',
+    timestamp: data.messageTime || data.ttstime || data.timestamp || new Date().toISOString(),
   };
 }
 
@@ -329,15 +337,19 @@ function escapeHTML(str) {
 // ─── Save Caption to SQLite ──────────────────────────────
 
 async function saveCaptionToDB({ speaker, text }, captionType) {
-  if (!currentMeetingId) return;
+  if (!currentMeetingId) {
+    console.warn('[DB] No currentMeetingId, skipping save');
+    return;
+  }
 
   try {
-    await ipcRenderer.invoke('db-insert-caption', {
+    const id = await ipcRenderer.invoke('db-insert-caption', {
       meetingId: currentMeetingId,
       speaker: speaker || '',
       text,
       captionType,
     });
+    console.log(`[DB] Caption saved #${id}: "${text.substring(0, 30)}..."`);
   } catch (e) {
     console.error('[DB] Failed to save caption:', e);
   }
@@ -387,6 +399,7 @@ joinForm.addEventListener('submit', async (e) => {
 
 // Pre-fill form with .env defaults (injected via /env-config.js)
 const env = window.__ENV_CONFIG__;
+console.log('[Init] env config:', env);
 if (env) {
   for (const [id, key] of [
     ['sdk-key', 'sdkKey'],
@@ -397,6 +410,9 @@ if (env) {
   ]) {
     if (env[key]) document.getElementById(id).value = env[key];
   }
+  console.log('[Init] Form pre-filled from .env');
+} else {
+  console.warn('[Init] window.__ENV_CONFIG__ is undefined — env-config.js may have failed to load');
 }
 
 initZoomSDK();
