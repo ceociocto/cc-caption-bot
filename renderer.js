@@ -150,21 +150,97 @@ function registerMeetingListeners() {
 
 // ─── Caption Handlers ────────────────────────────────────
 
-// Deduplicate by msgId — SDK may send same caption multiple times
-const _seenMsgIds = new Set();
+// Deduplicate by msgId + text (SDK fires each event twice)
+const _seenCaptionKeys = new Set();
+
+// Caption buffer for merging same-speaker fragments
+let pendingCaption = null;
+let captionFlushTimer = null;
+const CAPTION_FLUSH_MS = 3000; // flush after 3s of silence
 
 function onTranscriptionReceived(data) {
   const caption = parseCaptionData(data);
   if (!caption.text) return;
 
-  // Deduplicate: skip if we've already processed this msgId
-  if (caption.msgId && _seenMsgIds.has(caption.msgId) && caption.done) return;
-  if (caption.msgId) _seenMsgIds.add(caption.msgId);
+  // Dedup: skip duplicate fires (same msgId + same text)
+  const dedupeKey = `${caption.msgId}:${caption.text}`;
+  if (_seenCaptionKeys.has(dedupeKey)) return;
+  _seenCaptionKeys.add(dedupeKey);
+  if (_seenCaptionKeys.size > 2000) {
+    const entries = [..._seenCaptionKeys];
+    entries.slice(0, 1000).forEach(k => _seenCaptionKeys.delete(k));
+  }
 
   console.log('[Caption]', caption.speaker, ':', caption.text, caption.done ? '(done)' : '');
 
+  // Update UI immediately (real-time display)
   addCaptionToUI(caption);
-  saveCaptionToDB(caption, caption.captionType || 'transcription');
+
+  // Buffer for merged DB save
+  handleCaptionBuffer(caption);
+}
+
+function handleCaptionBuffer(caption) {
+  const { speaker, text, msgId, done } = caption;
+
+  if (pendingCaption && pendingCaption.speaker === speaker) {
+    const isRefinement = isTextRelated(pendingCaption.text, text) ||
+      (msgId && pendingCaption.msgId && msgId === pendingCaption.msgId);
+
+    if (isRefinement) {
+      // Always use latest text (most accurate transcription)
+      pendingCaption.text = text;
+      pendingCaption.msgId = msgId || pendingCaption.msgId;
+    } else {
+      // New sentence from same speaker → flush previous, start new
+      flushCaptionBuffer();
+      pendingCaption = { speaker, text, msgId: msgId || '' };
+    }
+  } else {
+    // Different speaker or first caption
+    if (pendingCaption) flushCaptionBuffer();
+    pendingCaption = { speaker, text, msgId: msgId || '' };
+  }
+
+  clearTimeout(captionFlushTimer);
+  if (done) {
+    flushCaptionBuffer();
+  } else {
+    captionFlushTimer = setTimeout(flushCaptionBuffer, CAPTION_FLUSH_MS);
+  }
+}
+
+function flushCaptionBuffer() {
+  clearTimeout(captionFlushTimer);
+  if (!pendingCaption || !pendingCaption.text) return;
+
+  const { speaker, text } = pendingCaption;
+  console.log('[DB Flush]', speaker, ':', text.substring(0, 50) + (text.length > 50 ? '...' : ''));
+  saveCaptionToDB({ speaker, text }, 'transcription');
+  pendingCaption = null;
+}
+
+function isTextRelated(prev, curr) {
+  const normalize = s => s.toLowerCase().replace(/[.,!?;:'"]/g, '').trim();
+  const p = normalize(prev);
+  const c = normalize(curr);
+
+  if (p === c) return true;
+  if (c.startsWith(p) || p.startsWith(c)) return true;
+
+  // Word overlap: first few words match
+  const pw = p.split(/\s+/);
+  const cw = c.split(/\s+/);
+  const minLen = Math.min(3, pw.length, cw.length);
+  if (minLen > 0) {
+    let matchCount = 0;
+    for (let i = 0; i < minLen; i++) {
+      if (pw[i] === cw[i]) matchCount++;
+    }
+    if (matchCount >= Math.ceil(minLen * 0.5)) return true;
+  }
+
+  return false;
 }
 
 function onLiveTranscriptionToggle(data) {
@@ -224,6 +300,7 @@ function onMeetingStatus(data) {
   const status = data.meetingStatus;
 
   if (status === 'disconnect' || status === 'ended' || status === 0) {
+    flushCaptionBuffer();
     setStatus('Meeting ended');
     isInMeeting = false;
     joinBtn.disabled = false;
@@ -349,7 +426,7 @@ async function saveCaptionToDB({ speaker, text }, captionType) {
       text,
       captionType,
     });
-    console.log(`[DB] Caption saved #${id}: "${text.substring(0, 30)}..."`);
+    console.log(`[DB] Caption #${id} saved`);
   } catch (e) {
     console.error('[DB] Failed to save caption:', e);
   }

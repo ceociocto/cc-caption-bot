@@ -276,13 +276,21 @@ ipcMain.handle('db-insert-meeting', (_, { meetingNumber, topic, hostName }) => {
 
 // Insert caption record
 ipcMain.handle('db-insert-caption', (_, { meetingId, speaker, text, captionType }) => {
-  db.run(
-    'INSERT INTO captions (meeting_id, speaker, text, caption_type) VALUES (?, ?, ?, ?)',
-    [meetingId, speaker || '', text, captionType || 'cc']
-  );
-  saveDB();
-  const result = db.exec('SELECT last_insert_rowid() as id');
-  return result[0].values[0][0];
+  try {
+    db.run(
+      'INSERT INTO captions (meeting_id, speaker, text, caption_type) VALUES (?, ?, ?, ?)',
+      [meetingId, speaker || '', text, captionType || 'cc']
+    );
+    const result = db.exec('SELECT last_insert_rowid()');
+    const id = result.length > 0 ? result[0].values[0][0] : -1;
+    saveDB();
+    console.log(`[DB] Caption #${id} saved: "${(text || '').substring(0, 30)}..."`);
+    return id;
+  } catch (e) {
+    console.error('[DB] Insert caption error:', e);
+    saveDB();
+    return -1;
+  }
 });
 
 // Insert participant record
