@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meeting Effectiveness Analyzer</title>
+
+  <!-- Dependencies -->
+  <!-- CryptoJS for JWT generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+
+  <!-- Zoom Meeting SDK (served from local node_modules via web-server.js) -->
+  <script src="/node_modules/@zoom/meetingsdk/dist/lib/vendor/react.min.js"></script>
+  <script src="/node_modules/@zoom/meetingsdk/dist/lib/vendor/react-dom.min.js"></script>
+  <script src="/node_modules/@zoom/meetingsdk/dist/lib/vendor/redux.min.js"></script>
+  <script src="/node_modules/@zoom/meetingsdk/dist/lib/vendor/redux-thunk.min.js"></script>
+  <script src="/node_modules/@zoom/meetingsdk/dist/lib/vendor/lodash.min.js"></script>
+  <script src="/node_modules/@zoom/meetingsdk/dist/zoom-meeting-6.0.0.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
+      color: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Header */
+    .header {
+      background: #1a1a2e;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #333;
+    }
+    .header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #2d8cff;
+    }
+    .status-bar {
+      margin-left: auto;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: #222;
+      color: #888;
+    }
+    .status-bar.connected { background: #0a3d0a; color: #4caf50; }
+    .status-bar.error { background: #3d0a0a; color: #f44336; }
+
+    /* Main Layout */
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      justify-content: center;
+    }
+
+    /* Left Panel: Controls */
+    .left-panel {
+      width: 400px;
+      min-width: 400px;
+      max-width: 600px;
+      background: #1a1a1a;
+      border-radius: 12px;
+      margin: auto;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    /* Add a title area at top of panel when not in meeting */
+    .left-panel::before {
+      content: '';
+      display: block;
+      height: 4px;
+      background: linear-gradient(90deg, #2d8cff, #00d4aa);
+      border-radius: 12px 12px 0 0;
+    }
+
+    body:not(.in-meeting) .section:last-child {
+      border-bottom: none;
+    }
+
+    /* In meeting state - expand to show captions */
+    body.in-meeting .left-panel {
+      width: 380px;
+      min-width: 380px;
+      max-width: 380px;
+      margin: 0;
+      margin-right: 1px;
+      border-radius: 0;
+      border-right: 1px solid #333;
+      box-shadow: none;
+    }
+
+    body.in-meeting .left-panel::before {
+      display: none;
+    }
+
+    body.in-meeting .main {
+      justify-content: flex-start;
+    }
+
+    .section {
+      padding: 16px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    /* Form */
+    .form-group {
+      margin-bottom: 10px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 8px 10px;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-size: 13px;
+      outline: none;
+    }
+    .form-group input:focus {
+      border-color: #2d8cff;
+    }
+    .form-row {
+      display: flex;
+      gap: 8px;
+    }
+    .form-row .form-group {
+      flex: 1;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary {
+      background: #2d8cff;
+      color: white;
+    }
+    .btn-secondary {
+      background: #333;
+      color: #ccc;
+      margin-top: 6px;
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* Meeting Info */
+    .info-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+    .info-label { color: #666; }
+    .info-value { color: #ccc; }
+
+    /* Participants */
+    .participant-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+    .participant-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #4caf50;
+    }
+    .participant-name { color: #ccc; }
+
+    /* Right Panel: Captions */
+    .right-panel {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Show captions when in meeting */
+    body.in-meeting .right-panel {
+      display: flex;
+    }
+
+    .captions-header {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #333;
+      background: #1a1a1a;
+    }
+    .captions-header h2 {
+      font-size: 14px;
+      color: #ccc;
+    }
+    .caption-count {
+      font-size: 11px;
+      color: #666;
+    }
+
+    .captions-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+
+    .caption-item {
+      display: flex;
+      gap: 10px;
+      padding: 6px 0;
+      border-bottom: 1px solid #1a1a1a;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .caption-time {
+      font-size: 11px;
+      color: #555;
+      white-space: nowrap;
+      min-width: 70px;
+    }
+    .caption-speaker {
+      font-size: 12px;
+      color: #2d8cff;
+      white-space: nowrap;
+      min-width: 80px;
+    }
+    .caption-text {
+      font-size: 13px;
+      color: #ddd;
+      line-height: 1.4;
+    }
+
+    .empty-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #444;
+      font-size: 14px;
+    }
+
+    /* Zoom Meeting Container (hidden) */
+    #zoom-meeting-container {
+      position: fixed;
+      right: 10px;
+      bottom: 10px;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      z-index: -1;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Console Log Area */
+    .console-log {
+      background: #0a0a0a;
+      border-top: 1px solid #333;
+      height: 150px;
+      overflow-y: auto;
+      padding: 8px 12px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+    }
+
+    /* Hide console when not in meeting */
+    body:not(.in-meeting) .console-log {
+      display: none;
+    }
+
+    body.in-meeting .console-log {
+      display: block;
+    }
+
+    .main:not(.in-meeting) {
+      height: 100%;
+    }
+    .console-line {
+      padding: 2px 0;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    .console-line.info { color: #888; }
+    .console-line.caption { color: #4caf50; }
+    .console-line.error { color: #f44336; }
+    .console-line.warn { color: #ff9800; }
+    .console-time {
+      color: #555;
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Zoom CC Caption Capture (Web Demo)</h1>
+    <span class="status-bar" id="status">Initializing...</span>
+  </div>
+
+  <div class="main">
+    <!-- Left Panel: Controls -->
+    <div class="left-panel">
+      <!-- Join Form -->
+      <div class="section">
+        <div class="section-title">Join Meeting</div>
+        <form id="join-form">
+          <div class="form-group">
+            <label>SDK Key</label>
+            <input type="text" id="sdk-key" required>
+          </div>
+          <div class="form-group">
+            <label>SDK Secret</label>
+            <input type="password" id="sdk-secret" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Meeting Number</label>
+              <input type="text" id="meeting-number" required>
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="text" id="meeting-password" placeholder="Optional">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Display Name</label>
+            <input type="text" id="user-name" value="Meeting Effectiveness Analyzer">
+          </div>
+          <button type="submit" class="btn btn-primary" id="join-btn">Join Meeting</button>
+          <button type="button" class="btn btn-secondary" id="export-btn" disabled>Export DB (JSON)</button>
+          <button type="button" class="btn btn-secondary" id="clear-db-btn">Clear Database</button>
+        </form>
+      </div>
+
+      <!-- Meeting Info -->
+      <div class="section">
+        <div class="section-title">Meeting Info</div>
+        <div id="meeting-info">
+          <div class="empty-state" style="height: auto; padding: 10px;">No active meeting</div>
+        </div>
+      </div>
+
+      <!-- Participants -->
+      <div class="section" style="flex: 1; overflow-y: auto;">
+        <div class="section-title">Participants</div>
+        <div id="participants"></div>
+      </div>
+
+      <!-- DB Stats -->
+      <div class="section">
+        <div class="section-title">Database</div>
+        <div id="db-stats">
+          <div class="info-item">
+            <span class="info-label">Captions Saved</span>
+            <span class="info-value" id="db-caption-count">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel: Captions -->
+    <div style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+      <div class="right-panel" style="flex: 1;">
+        <div class="captions-header">
+          <h2>Live Captions</h2>
+          <span class="caption-count" id="caption-count">0 captions</span>
+        </div>
+        <div class="captions-container" id="captions">
+          <div class="empty-state">Waiting for captions...</div>
+        </div>
+      </div>
+
+      <!-- Console Log -->
+      <div class="console-log" id="console-log"></div>
+    </div>
+  </div>
+
+  <!-- Zoom Meeting UI Container (hidden) -->
+  <div id="zoom-meeting-container"></div>
+
+  <script>
+    // ============================================================
+    // Configuration - Pre-filled with provided credentials
+    // ============================================================
+    const DEFAULT_CONFIG = {
+      sdkKey: 'YOUR_SDK_KEY',
+      sdkSecret: 'YOUR_SDK_SECRET',
+      meetingNumber: 'YOUR_MEETING_NUMBER',
+      meetingPassword: 'YOUR_MEETING_PASSWORD',
+      userName: 'Meeting Effectiveness Analyzer'
+    };
+
+    // ============================================================
+    // State Management
+    // ============================================================
+    let currentMeetingId = null;
+    let captionCount = 0;
+    let isInMeeting = false;
+    let ZoomMtg = window.ZoomMtg;
+
+    // Caption deduplication and buffering
+    const _seenCaptionKeys = new Set();
+    let pendingCaption = null;
+    let captionFlushTimer = null;
+    const CAPTION_FLUSH_MS = 3000;
+
+    // ============================================================
+    // Console Logging (on-page)
+    // ============================================================
+    function logToConsole(message, type = 'info') {
+      const consoleLog = document.getElementById('console-log');
+      const time = new Date().toLocaleTimeString();
+      const line = document.createElement('div');
+      line.className = `console-line ${type}`;
+      line.innerHTML = `<span class="console-time">[${time}]</span>${escapeHTML(message)}`;
+      consoleLog.appendChild(line);
+      consoleLog.scrollTop = consoleLog.scrollHeight;
+
+      // Also log to browser console
+      console.log(`[${type.toUpperCase()}] ${message}`);
+    }
+
+    // ============================================================
+    // JWT Generation (using CryptoJS)
+    // ============================================================
+    function generateJWT(sdkKey, sdkSecret, meetingNumber, role = 0) {
+      const iat = Math.floor(Date.now() / 1000);
+      const exp = iat + 48 * 3600; // 48 hours max
+
+      // Log current time for debugging
+      const now = new Date();
+      logToConsole(`Current time: ${now.toISOString()}, iat=${iat}, exp=${exp}`, 'info');
+
+      const header = { alg: 'HS256', typ: 'JWT' };
+      const payload = {
+        appKey: sdkKey,
+        sdkKey: sdkKey,
+        mn: String(meetingNumber).replace(/\s/g, ''), // Remove all spaces
+        role: Number(role),
+        iat: iat,
+        exp: exp,
+        tokenExp: exp
+      };
+
+      const encodedHeader = base64UrlEncode(JSON.stringify(header));
+      const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+
+      const signature = CryptoJS.HmacSHA256(
+        encodedHeader + '.' + encodedPayload,
+        sdkSecret
+      ).toString(CryptoJS.enc.Base64url);
+
+      return encodedHeader + '.' + encodedPayload + '.' + signature;
+    }
+
+    function base64UrlEncode(str) {
+      return btoa(str)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+    }
+
+    // ============================================================
+    // API Client (Backend Database)
+    // ============================================================
+    const API_BASE = window.location.origin;
+
+    async function apiRequest(endpoint, options = {}) {
+      const url = `${API_BASE}/api${endpoint}`;
+      const { body: data, ...restOptions } = options;
+
+      const requestOptions = {
+        ...restOptions,
+        headers: { 'Content-Type': 'application/json', ...options.headers },
+      };
+
+      if (data) {
+        requestOptions.body = JSON.stringify(data);
+      }
+
+      console.log(`[API] ${requestOptions.method || 'GET'} ${url}`, data ? { body: data } : '');
+
+      const response = await fetch(url, requestOptions);
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || `HTTP ${response.status}`);
+      }
+      return response.json();
+    }
+
+    async function createMeeting(meetingNumber, topic, hostName) {
+      const result = await apiRequest('/db/meeting', {
+        method: 'POST',
+        body: { meetingNumber, topic, hostName }
+      });
+      return result.meetingId;
+    }
+
+    async function saveCaption(meetingId, speaker, text, captionType = 'transcription') {
+      await apiRequest('/db/caption', {
+        method: 'POST',
+        body: { meetingId, speaker, text, captionType }
+      });
+    }
+
+    async function saveParticipant(meetingId, userId, userName, isHost) {
+      await apiRequest('/db/participant', {
+        method: 'POST',
+        body: { meetingId, userId, userName, isHost }
+      });
+    }
+
+    async function endMeeting(meetingId) {
+      await apiRequest(`/db/meeting/${meetingId}/end`, { method: 'PATCH' });
+    }
+
+    async function getDBStats() {
+      const stats = await apiRequest('/db/stats', { method: 'GET' });
+      document.getElementById('db-caption-count').textContent = stats.captionCount;
+      return stats;
+    }
+
+    async function clearDatabase() {
+      await apiRequest('/db/clear', { method: 'DELETE' });
+    }
+
+    // ============================================================
+    // Zoom Meeting SDK Integration
+    // ============================================================
+    function initZoomSDK() {
+      // Wait for SDK to load
+      const checkSDK = setInterval(() => {
+        if (window.ZoomMtg) {
+          clearInterval(checkSDK);
+          ZoomMtg = window.ZoomMtg;
+
+          if (!ZoomMtg) {
+            logToConsole('Zoom SDK failed to load - check console', 'error');
+            setStatus('SDK Load Error', true);
+            return;
+          }
+
+          try {
+            // Configure Zoom SDK - use local path
+            ZoomMtg.setZoomJSLib('/node_modules/@zoom/meetingsdk/dist/lib', '/av');
+            ZoomMtg.preLoadWasm();
+            ZoomMtg.prepareWebSDK();
+
+            logToConsole('Zoom Meeting SDK v6.0.0 loaded', 'info');
+            setStatus('Ready to join');
+          } catch (e) {
+            logToConsole(`SDK init error: ${e.message}`, 'error');
+            setStatus('SDK Init Error', true);
+          }
+        }
+      }, 100);
+
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        clearInterval(checkSDK);
+        if (!window.ZoomMtg) {
+          logToConsole('SDK load timeout - check your internet connection', 'error');
+          setStatus('SDK Load Timeout', true);
+        }
+      }, 10000);
+    }
+
+    async function joinMeeting(sdkKey, sdkSecret, meetingNumber, password, userName) {
+      setStatus('Generating JWT...');
+      logToConsole(`Generating JWT for meeting ${meetingNumber}...`, 'info');
+
+      // Clean meeting number
+      const cleanMeetingNumber = String(meetingNumber).replace(/\s/g, '');
+      logToConsole(`Clean meeting number: ${cleanMeetingNumber}`, 'info');
+
+      // Generate JWT
+      const signature = generateJWT(sdkKey, sdkSecret, cleanMeetingNumber, 0);
+      logToConsole(`JWT signature (first 50 chars): ${signature.substring(0, 50)}...`, 'info');
+
+      // Log the payload for debugging
+      const iat = Math.floor(Date.now() / 1000);
+      logToConsole(`JWT payload would be: appKey=${sdkKey}, mn=${cleanMeetingNumber}, role=0, iat=${iat}`, 'info');
+
+      // Create meeting record via API
+      currentMeetingId = await createMeeting(
+        String(meetingNumber),
+        `Meeting ${meetingNumber}`,
+        userName
+      );
+      logToConsole(`Created meeting record #${currentMeetingId}`, 'info');
+      await getDBStats();
+
+      updateMeetingInfo({ meetingNumber, userName, meetingId: currentMeetingId });
+      setStatus('Joining meeting...');
+      logToConsole('Initializing Zoom Meeting SDK...', 'info');
+
+      // Initialize and join
+      ZoomMtg.init({
+        leaveUrl: window.location.href,
+        patchJsMedia: true,
+        success: () => {
+          logToConsole('SDK initialized, joining meeting...', 'info');
+
+          ZoomMtg.join({
+            sdkKey: sdkKey,
+            signature: signature,
+            meetingNumber: cleanMeetingNumber,
+            passWord: password || '',
+            userName: userName,
+
+            success: (res) => {
+              logToConsole('Joined meeting successfully!', 'info');
+              console.log('[ZoomSDK] Join success:', res);
+
+              isInMeeting = true;
+              document.body.classList.add('in-meeting');
+              document.querySelector('.main').classList.add('in-meeting');
+              setStatus('In meeting - waiting for captions');
+              joinBtn.disabled = true;
+              joinBtn.textContent = 'In Meeting';
+              exportBtn.disabled = false;
+
+              registerMeetingListeners();
+              requestCaptions();
+            },
+
+            error: (err) => {
+              console.error('[ZoomSDK] Join error:', err);
+              const errorMsg = err.errorMessage || err.type || JSON.stringify(err);
+              logToConsole(`Join failed: ${errorMsg}`, 'error');
+              logToConsole(`Full error: ${JSON.stringify(err)}`, 'error');
+              logToConsole(`Troubleshooting:`, 'warn');
+              logToConsole(`1. Verify SDK Key/Secret are correct`, 'warn');
+              logToConsole(`2. Ensure meeting is currently active`, 'warn');
+              logToConsole(`3. Check meeting number is valid: ${cleanMeetingNumber}`, 'warn');
+              setStatus(`Join failed: ${errorMsg}`, true);
+            },
+          });
+        },
+
+        error: (err) => {
+          console.error('[ZoomSDK] Init error:', err);
+          const errorMsg = err.errorMessage || err.type || JSON.stringify(err);
+          logToConsole(`Init failed: ${errorMsg}`, 'error');
+          logToConsole(`Full error details: ${JSON.stringify(err)}`, 'error');
+          setStatus(`Init failed: ${errorMsg}`, true);
+        },
+      });
+    }
+
+    function registerMeetingListeners() {
+      // CC + Live Transcription
+      ZoomMtg.inMeetingServiceListener('onReceiveTranscriptionMsg', onTranscriptionReceived);
+      ZoomMtg.inMeetingServiceListener('onLiveTranscriptionOn', (data) => {
+        logToConsole('Live transcription enabled', 'info');
+      });
+
+      // Participant events
+      ZoomMtg.inMeetingServiceListener('onUserJoin', onUserJoin);
+      ZoomMtg.inMeetingServiceListener('onUserLeave', (data) => {
+        logToConsole(`User left: ${JSON.stringify(data)}`, 'info');
+      });
+
+      // Meeting status
+      ZoomMtg.inMeetingServiceListener('onMeetingStatus', onMeetingStatus);
+
+      logToConsole('Meeting event listeners registered', 'info');
+    }
+
+    function requestCaptions() {
+      try {
+        if (typeof ZoomMtg.isSupportCC === 'function') {
+          const supported = ZoomMtg.isSupportCC();
+          logToConsole(`CC support: ${supported}`, 'info');
+        }
+
+        if (typeof ZoomMtg.startCC === 'function') {
+          ZoomMtg.startCC();
+          logToConsole('Started closed captions', 'info');
+        } else {
+          logToConsole('CC auto-start not available - host must enable manually', 'warn');
+        }
+
+        setStatus('In meeting — enable CC/AI transcription for captions');
+      } catch (e) {
+        logToConsole(`Could not auto-start CC: ${e.message}`, 'warn');
+      }
+    }
+
+    // ============================================================
+    // Caption Handling
+    // ============================================================
+    function onTranscriptionReceived(data) {
+      const caption = parseCaptionData(data);
+      if (!caption.text) return;
+
+      // Deduplication
+      const dedupeKey = `${caption.msgId}:${caption.text}`;
+      if (_seenCaptionKeys.has(dedupeKey)) return;
+      _seenCaptionKeys.add(dedupeKey);
+      if (_seenCaptionKeys.size > 2000) {
+        const entries = [..._seenCaptionKeys];
+        entries.slice(0, 1000).forEach(k => _seenCaptionKeys.delete(k));
+      }
+
+      logToConsole(`[${caption.speaker || 'Speaker'}]: ${caption.text}`, 'caption');
+
+      // Update UI
+      addCaptionToUI(caption);
+
+      // Buffer for DB save
+      handleCaptionBuffer(caption);
+    }
+
+    function handleCaptionBuffer(caption) {
+      const { speaker, text, msgId, done } = caption;
+
+      if (pendingCaption && pendingCaption.speaker === speaker) {
+        const isRefinement = isTextRelated(pendingCaption.text, text) ||
+          (msgId && pendingCaption.msgId && msgId === pendingCaption.msgId);
+
+        if (isRefinement) {
+          pendingCaption.text = text;
+          pendingCaption.msgId = msgId || pendingCaption.msgId;
+        } else {
+          flushCaptionBuffer();
+          pendingCaption = { speaker, text, msgId: msgId || '' };
+        }
+      } else {
+        if (pendingCaption) flushCaptionBuffer();
+        pendingCaption = { speaker, text, msgId: msgId || '' };
+      }
+
+      clearTimeout(captionFlushTimer);
+      if (done) {
+        flushCaptionBuffer();
+      } else {
+        captionFlushTimer = setTimeout(flushCaptionBuffer, CAPTION_FLUSH_MS);
+      }
+    }
+
+    async function flushCaptionBuffer() {
+      clearTimeout(captionFlushTimer);
+      if (!pendingCaption || !pendingCaption.text) return;
+
+      const { speaker, text } = pendingCaption;
+      logToConsole(`[DB Save] ${speaker}: ${text.substring(0, 30)}...`, 'info');
+
+      await saveCaption(currentMeetingId, speaker || '', text, 'transcription');
+      await getDBStats();
+
+      pendingCaption = null;
+    }
+
+    function isTextRelated(prev, curr) {
+      const normalize = s => s.toLowerCase().replace(/[.,!?;:'"]/g, '').trim();
+      const p = normalize(prev);
+      const c = normalize(curr);
+
+      if (p === c) return true;
+      if (c.startsWith(p) || p.startsWith(c)) return true;
+
+      const pw = p.split(/\s+/);
+      const cw = c.split(/\s+/);
+      const minLen = Math.min(3, pw.length, cw.length);
+      if (minLen > 0) {
+        let matchCount = 0;
+        for (let i = 0; i < minLen; i++) {
+          if (pw[i] === cw[i]) matchCount++;
+        }
+        if (matchCount >= Math.ceil(minLen * 0.5)) return true;
+      }
+
+      return false;
+    }
+
+    function parseCaptionData(data) {
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch (_) {}
+      }
+
+      return {
+        text: data.text || data.captionMsg || data.msg || data.message || data.ttstext || '',
+        speaker: data.displayName || data.speakerName || data.speaker || data.userName || data.senderName || '',
+        msgId: data.msgId || '',
+        done: !!data.done,
+        timestamp: data.messageTime || data.ttstime || data.timestamp || new Date().toISOString(),
+      };
+    }
+
+    // ============================================================
+    // Participant Handlers
+    // ============================================================
+    async function onUserJoin(data) {
+      logToConsole(`User joined: ${JSON.stringify(data)}`, 'info');
+      const users = Array.isArray(data) ? data : (data.userList || [data]);
+
+      for (const user of users) {
+        const name = user.userName || user.name || 'Unknown';
+        const isHost = user.isHost || user.bCoHost || false;
+
+        addParticipantToUI(name, isHost);
+
+        if (currentMeetingId) {
+          await saveParticipant(
+            currentMeetingId,
+            user.userId || user.userGUID || '',
+            name,
+            isHost
+          );
+        }
+      }
+    }
+
+    async function onMeetingStatus(data) {
+      logToConsole(`Meeting status: ${JSON.stringify(data)}`, 'info');
+      const status = data.meetingStatus;
+
+      if (status === 'disconnect' || status === 'ended' || status === 0) {
+        await flushCaptionBuffer();
+        setStatus('Meeting ended');
+        isInMeeting = false;
+        document.body.classList.remove('in-meeting');
+        document.querySelector('.main').classList.remove('in-meeting');
+        joinBtn.disabled = false;
+        joinBtn.textContent = 'Join Meeting';
+
+        if (currentMeetingId) {
+          await endMeeting(currentMeetingId);
+        }
+      }
+    }
+
+    // ============================================================
+    // UI Updates
+    // ============================================================
+    function addCaptionToUI({ speaker, text }) {
+      const captionsEl = document.getElementById('captions');
+      const empty = captionsEl.querySelector('.empty-state');
+      if (empty) empty.remove();
+
+      const time = new Date().toLocaleTimeString();
+      const el = document.createElement('div');
+      el.className = 'caption-item';
+      el.innerHTML = `
+        <span class="caption-time">${time}</span>
+        <span class="caption-speaker">${escapeHTML(speaker || 'Speaker')}</span>
+        <span class="caption-text">${escapeHTML(text)}</span>
+      `;
+      captionsEl.appendChild(el);
+      captionsEl.scrollTop = captionsEl.scrollHeight;
+
+      captionCount++;
+      document.getElementById('caption-count').textContent = `${captionCount} caption${captionCount !== 1 ? 's' : ''}`;
+    }
+
+    function addParticipantToUI(name, isHost) {
+      const participantsEl = document.getElementById('participants');
+      const existing = participantsEl.querySelector(`[data-name="${CSS.escape(name)}"]`);
+      if (existing) return;
+
+      const el = document.createElement('div');
+      el.className = 'participant-item';
+      el.dataset.name = name;
+      el.innerHTML = `
+        <span class="participant-dot"></span>
+        <span class="participant-name">${escapeHTML(name)}</span>
+        ${isHost ? '<span style="font-size:10px;color:#ff9800;margin-left:auto;">Host</span>' : ''}
+      `;
+      participantsEl.appendChild(el);
+    }
+
+    function updateMeetingInfo({ meetingNumber, userName, meetingId }) {
+      document.getElementById('meeting-info').innerHTML = `
+        <div class="info-item">
+          <span class="info-label">Meeting ID</span>
+          <span class="info-value">${escapeHTML(meetingNumber)}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">DB Record</span>
+          <span class="info-value">#${meetingId}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Bot Name</span>
+          <span class="info-value">${escapeHTML(userName)}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Status</span>
+          <span class="info-value" style="color: #4caf50;">Connected</span>
+        </div>
+      `;
+    }
+
+    function setStatus(msg, isError = false) {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = msg;
+      statusEl.className = `status-bar${isError ? ' error' : isInMeeting ? ' connected' : ''}`;
+    }
+
+    function escapeHTML(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // ============================================================
+    // Export & Clear Functions
+    // ============================================================
+    async function exportDatabase() {
+      const exportData = {
+        exportDate: new Date().toISOString(),
+        meetings: await apiRequest('/db/meetings'),
+        captions: await apiRequest(`/db/captions?meetingId=${currentMeetingId || 0}`),
+        participants: await apiRequest(`/db/participants?meetingId=${currentMeetingId || 0}`),
+      };
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `zoom_captions_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      logToConsole('Database exported as JSON', 'info');
+    }
+
+    async function clearDatabase() {
+      if (!confirm('Are you sure you want to clear all data? This cannot be undone.')) return;
+
+      await apiRequest('/db/clear', { method: 'DELETE' });
+      await getDBStats();
+
+      // Clear UI
+      document.getElementById('captions').innerHTML = '<div class="empty-state">Waiting for captions...</div>';
+      document.getElementById('participants').innerHTML = '';
+      document.getElementById('meeting-info').innerHTML = '<div class="empty-state" style="height: auto; padding: 10px;">No active meeting</div>';
+      captionCount = 0;
+      document.getElementById('caption-count').textContent = '0 captions';
+
+      logToConsole('Database cleared', 'info');
+    }
+
+    // ============================================================
+    // Form Handler
+    // ============================================================
+    const joinBtn = document.getElementById('join-btn');
+    const exportBtn = document.getElementById('export-btn');
+    const clearDbBtn = document.getElementById('clear-db-btn');
+
+    document.getElementById('join-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const sdkKey = document.getElementById('sdk-key').value.trim();
+      const sdkSecret = document.getElementById('sdk-secret').value.trim();
+      const meetingNumber = document.getElementById('meeting-number').value.trim().replace(/\s/g, '');
+      const password = document.getElementById('meeting-password').value.trim();
+      const userName = document.getElementById('user-name').value.trim() || DEFAULT_CONFIG.userName;
+
+      if (!sdkKey || !sdkSecret || !meetingNumber) {
+        setStatus('Please fill in all required fields', true);
+        return;
+      }
+
+      joinBtn.disabled = true;
+      joinBtn.textContent = 'Joining...';
+
+      await joinMeeting(sdkKey, sdkSecret, meetingNumber, password, userName);
+    });
+
+    exportBtn.addEventListener('click', exportDatabase);
+    clearDbBtn.addEventListener('click', clearDatabase);
+
+    // ============================================================
+    // Initialize
+    // ============================================================
+    async function init() {
+      logToConsole('Initializing application...', 'info');
+
+      // Pre-fill form with defaults
+      document.getElementById('sdk-key').value = DEFAULT_CONFIG.sdkKey;
+      document.getElementById('sdk-secret').value = DEFAULT_CONFIG.sdkSecret;
+      document.getElementById('meeting-number').value = DEFAULT_CONFIG.meetingNumber;
+      document.getElementById('meeting-password').value = DEFAULT_CONFIG.meetingPassword;
+      document.getElementById('user-name').value = DEFAULT_CONFIG.userName;
+
+      logToConsole('Form pre-filled with default credentials', 'info');
+
+      // Initialize database stats
+      await getDBStats();
+
+      // Initialize Zoom SDK
+      initZoomSDK();
+
+      logToConsole('Ready! Click "Join Meeting" to connect.', 'info');
+    }
+
+    // Start the app
+    init();
+  </script>
+</body>
+</html>

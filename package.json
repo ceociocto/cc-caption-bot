@@ -5,11 +5,12 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "generate-jwt": "node jwt.js"
+    "generate-jwt": "node jwt.js",
+    "web": "node web-server.js 8080"
   },
   "dependencies": {
-    "@zoom/meetingsdk": "^5.1.4",
-    "sql.js": "^1.11.0"
+    "@zoom/meetingsdk": "^6.0.0",
+    "sql.js": "^1.14.1"
   },
   "devDependencies": {
     "electron": "^33.0.0"

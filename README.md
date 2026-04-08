@@ -1,114 +1,267 @@
-# Zoom CC Caption Capture
+# Zoom Meeting SDK Web Demo
 
-Electron app that joins a Zoom meeting via the Meeting SDK, captures live transcription / closed-caption text in real-time, and saves merged captions to a local SQLite database.
+A standalone web page that demonstrates joining a Zoom meeting and capturing real-time closed captions, saving them to a local SQLite database.
 
-## Architecture
+## Two Ways to Run
 
-```
-┌──────────────────────────────────────────────────────┐
-│  Electron Main Process (main.js)                     │
-│  ├─ HTTP server :9999 → serves index.html + SDK      │
-│  ├─ SQLite (sql.js / WASM) → captions.db             │
-│  ├─ JWT generation (keeps SDK Secret server-side)     │
-│  └─ IPC handlers: insert/query captions, meetings,    │
-│                    participants                        │
-├──────────────────────────────────────────────────────┤
-│  Renderer Process (renderer.js + index.html)          │
-│  ├─ Zoom Meeting SDK (Client View, loaded via script) │
-│  ├─ onReceiveTranscriptionMsg → capture captions      │
-│  ├─ Dedup + merge buffer (same speaker fragments)     │
-│  └─ UI: live captions, participants, controls         │
-└──────────────────────────────────────────────────────┘
-```
+| Method | Description | Command |
+|--------|-------------|---------|
+| **Web Demo** | Pure browser-based, runs via local HTTP server | `npm run web` |
+| **Electron App** | Desktop app with integrated SQLite database | `npm start` |
 
-### Key Files
+---
 
-| File | Role |
-|---|---|
-| `main.js` | Electron main process: HTTP server, SQLite, JWT, IPC |
-| `renderer.js` | Zoom SDK init/join, caption capture, buffering, UI |
-| `index.html` | UI layout + Zoom SDK script tags |
-| `jwt.js` | Standalone CLI JWT generator (for quick testing) |
-| `.env` | SDK credentials and meeting defaults (gitignored) |
-| `captions.db` | SQLite database (auto-created at runtime) |
-
-### Database Schema
-
-```
-meetings      → id, meeting_number, topic, host_name, started_at, ended_at
-captions      → id, meeting_id (FK), speaker, text, caption_type, received_at
-participants  → id, meeting_id (FK), user_id, user_name, is_host, joined_at
-```
-
-## Prerequisites
-
-- **Node.js** >= 18
-- **Zoom account** with a [Meeting SDK app](https://marketplace.zoom.us/) (Server-to-Server OAuth or legacy JWT)
-- A **Zoom meeting** to join (hosted by the same account for dev testing)
-- Host must **enable CC or AI Companion / Live Transcript** in the meeting for captions to appear
-
-## Quick Start
+## Web Demo Quick Start
 
 ```bash
-# 1. Clone and install
-git clone <repo-url>
-cd zoom-meeting-sdk-demo
+# 1. Install dependencies
 npm install
 
-# 2. Configure credentials
-cp .env.example .env
-# Edit .env with your SDK Key, Secret, and a test meeting number
+# 2. Start the web server (default port 8080)
+npm run web
 
-# 3. Run
-npm start
+# Or specify a custom port
+node web-server.js 9000
 ```
 
-The app opens an Electron window. If `.env` is configured, the form is pre-filled — just click **Join Meeting**.
+Then open your browser to `http://localhost:8080`
 
-### Manual JWT (optional)
+---
 
+## How the Web Demo Loads the Meeting SDK
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Browser                                                       │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  web-demo.html                                          │   │
+│  │  ├─ Loads Zoom SDK from local web-server.js            │   │
+│  │  ├─ Generates JWT client-side (CryptoJS)               │   │
+│  │  ├─ Joins meeting via Zoom Meeting SDK                 │   │
+│  │  └─ Sends captions to backend API                      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                              ↓ HTTP API                         │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  web-server.js (Node.js)                                │   │
+│  │  ├─ Serves static files (web-demo.html, SDK assets)    │   │
+│  │  ├─ REST API: /api/db/* for database operations        │   │
+│  │  └─ SQLite (sql.js WASM) → captions.db                │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### SDK Loading Details
+
+The Zoom Meeting SDK is loaded from **local** `node_modules` instead of CDN:
+
+**Why local?**
+- Faster loading (no network dependency)
+- Works offline after first `npm install`
+- Version control (use specific SDK version)
+- Avoids CDN CORS issues
+
+**How it works:**
+
+1. **`web-server.js`** serves static files from the project directory
+2. **`web-demo.html`** loads the SDK from local paths:
+   ```html
+   <script src="/node_modules/@zoom/meetingsdk/dist/lib/vendor/react.min.js"></script>
+   <script src="/node_modules/@zoom/meetingsdk/dist/lib/vendor/react-dom.min.js"></script>
+   <script src="/node_modules/@zoom/meetingsdk/dist/zoom-meeting-6.0.0.min.js"></script>
+   ```
+
+3. **SDK Configuration** uses local WASM path:
+   ```javascript
+   ZoomMtg.setZoomJSLib('/node_modules/@zoom/meetingsdk/dist/lib', '/av');
+   ```
+
+### Required Dependencies
+
+```json
+{
+  "@zoom/meetingsdk": "^6.0.0",
+  "sql.js": "^1.11.0",
+  "crypto-js": "^4.2.0"
+}
+```
+
+Install with:
 ```bash
-node jwt.js <sdkKey> <sdkSecret> <meetingNumber> [role]
-# role: 0 = participant (default), 1 = host
+npm install @zoom/meetingsdk sql.js crypto-js
 ```
 
-The app generates JWTs automatically via IPC, so this CLI is only needed for debugging.
+---
 
-## How Caption Capture Works
+## Features
 
-1. App joins the meeting as a participant (bot name: "CC Caption Bot")
-2. Registers `onReceiveTranscriptionMsg` listener on the Zoom SDK
-3. On each caption event:
-   - **Dedup**: same `msgId:text` pair is only processed once (SDK fires each event twice)
-   - **Buffer**: captions from the same speaker are buffered for up to 3 seconds
-   - **Merge**: if the new text is a progressive refinement of the buffered text (overlapping words), it replaces the buffer; otherwise the previous buffer is flushed as one DB record and a new buffer starts
-   - **Flush triggers**: speaker change, 3s silence, `done=true`, or meeting end
-4. UI shows each caption in real-time; DB stores the merged, deduplicated result
+| Feature | Web Demo | Electron App |
+|---------|----------|--------------|
+| Join Zoom Meeting | ✅ | ✅ |
+| Real-time Caption Capture | ✅ | ✅ |
+| Local SQLite Database | ✅ (via API) | ✅ (embedded) |
+| Export to JSON | ✅ | ✅ |
+| Runs in Browser | ✅ | ❌ (Electron) |
+| Desktop Window | ❌ | ✅ |
+
+---
+
+## Pre-filled Credentials
+
+The demo comes with placeholder credentials. Fill in your own:
+- SDK Key: `YOUR_SDK_KEY` (from Zoom Marketplace)
+- SDK Secret: `YOUR_SDK_SECRET` (from Zoom Marketplace)
+- Meeting Number: `YOUR_MEETING_NUMBER`
+- Meeting Password: `YOUR_MEETING_PASSWORD` (optional)
+- Bot Name: `Meeting Effectiveness Analyzer`
+
+Get your SDK credentials from: https://marketplace.zoom.us/
+
+---
+
+## How It Works
+
+### 1. JWT Generation (Client-side)
+Uses **CryptoJS** to generate Zoom Meeting SDK JWT tokens in the browser:
+```javascript
+const signature = CryptoJS.HmacSHA256(
+  encodedHeader + '.' + encodedPayload,
+  sdkSecret
+).toString(CryptoJS.enc.Base64url);
+```
+
+### 2. Zoom SDK Initialization
+```javascript
+ZoomMtg.setZoomJSLib('/node_modules/@zoom/meetingsdk/dist/lib', '/av');
+ZoomMtg.preLoadWasm();
+ZoomMtg.prepareWebSDK();
+ZoomMtg.init({ ... });
+ZoomMtg.join({ signature, meetingNumber, ... });
+```
+
+### 3. Caption Capture
+Listens to SDK events:
+```javascript
+ZoomMtg.inMeetingServiceListener('onReceiveTranscriptionMsg', (data) => {
+  const caption = parseCaptionData(data);
+  saveCaptionToDatabase(caption);
+});
+```
+
+### 4. Database Storage
+Captions are saved via REST API:
+```javascript
+POST /api/db/caption
+{ meetingId, speaker, text, captionType }
+```
+
+Server uses **sql.js** (WASM) to store data in `captions.db`:
+```javascript
+db.run('INSERT INTO captions (...) VALUES (?, ?, ?, ?)', [...]);
+```
+
+---
+
+## Database Schema
+
+```sql
+CREATE TABLE meetings (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  meeting_number TEXT NOT NULL,
+  topic         TEXT,
+  host_name     TEXT,
+  started_at    TEXT DEFAULT (datetime('now', 'localtime')),
+  ended_at      TEXT
+);
+
+CREATE TABLE captions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  meeting_id  INTEGER NOT NULL,
+  speaker     TEXT,
+  text        TEXT NOT NULL,
+  caption_type TEXT DEFAULT 'cc',
+  received_at TEXT DEFAULT (datetime('now', 'localtime')),
+  FOREIGN KEY (meeting_id) REFERENCES meetings(id)
+);
+
+CREATE TABLE participants (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  meeting_id  INTEGER NOT NULL,
+  user_id     TEXT,
+  user_name   TEXT,
+  is_host     INTEGER DEFAULT 0,
+  joined_at   TEXT DEFAULT (datetime('now', 'localtime')),
+  FOREIGN KEY (meeting_id) REFERENCES meetings(id)
+);
+```
+
+---
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/db/meeting` | POST | Create meeting record |
+| `/api/db/caption` | POST | Insert caption |
+| `/api/db/participant` | POST | Insert participant |
+| `/api/db/meeting/:id/end` | PATCH | End meeting |
+| `/api/db/captions?meetingId=N` | GET | Get captions for meeting |
+| `/api/db/meetings` | GET | Get all meetings |
+| `/api/db/participants?meetingId=N` | GET | Get participants |
+| `/api/db/stats` | GET | Get database stats |
+| `/api/db/clear` | DELETE | Clear all data |
+
+---
+
+## Important Notes
+
+1. **Meeting Host**: The meeting host must enable **Closed Captions** or **AI Companion / Live Transcript** for captions to appear
+2. **Same Account**: For development, join meetings hosted by the same account as the SDK app
+3. **SDK Version**: This demo uses Zoom Meeting SDK v6.0.0
+4. **Database**: `captions.db` is created in the project directory
+
+---
+
+## Troubleshooting
+
+### Captions not appearing?
+- Ensure the host has enabled CC or Live Transcription in the meeting
+- Check the on-page console for event logs
+- Verify SDK credentials are correct
+
+### SDK not loading?
+- Ensure `@zoom/meetingsdk` is installed (`npm install`)
+- Check browser console for 404 errors on SDK files
+- Verify `web-server.js` is running
+
+### API errors?
+- Check `web-server.js` console for errors
+- Verify `sql.js` is installed
+- Ensure `captions.db` is writable
+
+### JWT errors?
+- Verify SDK Key and Secret are correct
+- Check that the meeting number is valid
+- Ensure the meeting is currently active
+
+---
 
 ## Tech Stack
 
-| Component | Choice | Why |
-|---|---|---|
-| Runtime | Electron 33 | Zoom Meeting SDK Client View requires a browser env |
-| Zoom SDK | @zoom/meetingsdk 5.x (Client View) | Captures in-meeting CC/transcription |
-| Database | sql.js (SQLite via WASM) | Zero native rebuild, single-file DB |
-| Auth | HMAC-SHA256 JWT (inline) | No external JWT library needed |
-| HTTP | Node.js `http` module | Serves SDK assets from node_modules locally |
+| Component | Choice |
+|-----------|--------|
+| Zoom SDK | @zoom/meetingsdk v6.0.0 (local) |
+| JWT | CryptoJS for HMAC-SHA256 |
+| Database | sql.js (SQLite via WASM) |
+| Server | Node.js http module |
+| Storage | File-based (`captions.db`) |
+
+---
 
 ## Links
 
 - [Zoom Meeting SDK Docs](https://developers.zoom.us/docs/meeting-sdk/)
-- [Meeting SDK Reference (Client View)](https://developers.zoom.us/docs/meeting-sdk/client-view/reference/)
+- [Meeting SDK Web Guide](https://developers.zoom.us/docs/meeting-sdk/web/get-started/)
 - [Create a Meeting SDK App](https://developers.zoom.us/docs/meeting-sdk/create-an-app/)
-- [Meeting SDK Auth (JWT)](https://developers.zoom.us/docs/meeting-sdk/auth/)
-- [Caption / Live Transcription Events](https://developers.zoom.us/docs/meeting-sdk/client-view/reference/caption-control/)
-- [sql.js — SQLite compiled to WASM](https://sql.js.org/)
-- [Electron Docs](https://www.electronjs.org/docs/)
-
-## Development Notes
-
-- `webSecurity: false` is set in Electron to allow the Zoom SDK to load its WASM and media modules from the local HTTP server
-- The Zoom Meeting container (`#zoom-meeting-container`) is hidden (1px, opacity 0) — the SDK runs headlessly in the background while captions are captured from events
-- The SDK script tags in `index.html` load vendor libs (React, Redux, Lodash) and `zoom-meeting-5.x.x.min.js` from `node_modules/@zoom/meetingsdk/dist/`
-- `captions.db` is persisted to disk on every write (via `db.export()`) — safe for small-scale use, may need optimization for high-volume scenarios
-- DevTools opens automatically; check the **Console** tab for `[Caption]` and `[DB Flush]` logs
+- [sql.js Documentation](https://sql.js.org/)
