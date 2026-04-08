@@ -136,16 +136,58 @@ async function handleAPI(req, res) {
       return;
     }
 
-    // POST /api/db/caption - Insert caption
+    // POST /api/db/caption - Insert caption with merge logic
     if (pathname === '/api/db/caption' && req.method === 'POST') {
       const body = await parseJSON(req);
-      db.run(
-        'INSERT INTO captions (meeting_id, speaker, text, caption_type) VALUES (?, ?, ?, ?)',
-        [body.meetingId, body.speaker || '', body.text, body.captionType || 'transcription']
-      );
+      const speaker = body.speaker || '';
+      const text = body.text.trim();
+      const captionType = body.captionType || 'transcription';
+      const meetingId = body.meetingId;
+      const mergeThresholdMs = 5000; // 5 seconds threshold for merging
+
+      // Check if we should merge with the last caption
+      const lastCaptionResult = db.exec(`
+        SELECT id, text, speaker, received_at
+        FROM captions
+        WHERE meeting_id = ?
+        ORDER BY received_at DESC
+        LIMIT 1
+      `, [meetingId]);
+
+      let shouldMerge = false;
+      let lastCaptionId = null;
+
+      if (lastCaptionResult.length > 0 && lastCaptionResult[0].values.length > 0) {
+        const [id, lastText, lastSpeaker, receivedAt] = lastCaptionResult[0].values[0];
+        const lastTime = new Date(receivedAt).getTime();
+        const now = Date.now();
+        const timeDiff = now - lastTime;
+
+        // Merge if same speaker and within threshold
+        if (lastSpeaker === speaker && timeDiff < mergeThresholdMs) {
+          shouldMerge = true;
+          lastCaptionId = id;
+        }
+      }
+
+      if (shouldMerge && lastCaptionId) {
+        // Merge with existing caption
+        db.run(
+          'UPDATE captions SET text = text || ? WHERE id = ?',
+          [text, lastCaptionId]
+        );
+        console.log(`[DB] Merged caption for speaker "${speaker}", id: ${lastCaptionId}`);
+      } else {
+        // Insert new caption
+        db.run(
+          'INSERT INTO captions (meeting_id, speaker, text, caption_type) VALUES (?, ?, ?, ?)',
+          [meetingId, speaker, text, captionType]
+        );
+      }
+
       saveDatabase();
       res.writeHead(201);
-      res.end(JSON.stringify({ success: true }));
+      res.end(JSON.stringify({ success: true, merged: shouldMerge }));
       return;
     }
 
