@@ -61,6 +61,12 @@
       flex: 1;
       overflow: hidden;
       justify-content: center;
+      z-index: 1;
+    }
+
+    /* Reset z-index when Zoom SDK is active (websdk-body present) */
+    body:has(.websdk-body) .main {
+      z-index: auto;
     }
 
     /* Left Panel: Controls */
@@ -100,6 +106,8 @@
       border-radius: 0;
       border-right: 1px solid #333;
       box-shadow: none;
+      z-index: 9999;
+      position: relative;
     }
 
     body.in-meeting .left-panel::before {
@@ -332,7 +340,7 @@
 
   <!-- Header -->
   <div class="header">
-    <h1>Zoom CC Caption Capture (Web Demo)</h1>
+    <h1>Meeting Effectiveness Analyzer</h1>
     <span class="status-bar" id="status">Initializing...</span>
   </div>
 
@@ -422,10 +430,10 @@
     // Configuration - Pre-filled with provided credentials
     // ============================================================
     const DEFAULT_CONFIG = {
-      sdkKey: 'YOUR_SDK_KEY',
-      sdkSecret: 'YOUR_SDK_SECRET',
-      meetingNumber: 'YOUR_MEETING_NUMBER',
-      meetingPassword: 'YOUR_MEETING_PASSWORD',
+      sdkKey: 'mnKiro1BSWSK2JH8u2Kn_w',
+      sdkSecret: 'KQsoToTrYxC5WanZNKj4Lz5GlyKX4cBV',
+      meetingNumber: '8765399843',
+      meetingPassword: 'c86f82',
       userName: 'Meeting Effectiveness Analyzer'
     };
 
@@ -444,10 +452,69 @@
     const CAPTION_FLUSH_MS = 3000;
 
     // ============================================================
+    // WebSocket Connection to zoom_captions_server.py
+    // ============================================================
+    let captionsWs = null;
+    const CAPTIONS_WS_URL = 'ws://localhost:8767';
+
+    function connectCaptionsWebSocket() {
+      if (captionsWs?.readyState === WebSocket.OPEN) return;
+
+      captionsWs = new WebSocket(CAPTIONS_WS_URL);
+
+      captionsWs.onopen = () => {
+        logToConsole('Connected to zoom_captions_server.py', 'info');
+      };
+
+      captionsWs.onclose = () => {
+        logToConsole('Disconnected from zoom_captions_server.py - reconnecting...', 'warn');
+        captionsWs = null;
+        setTimeout(connectCaptionsWebSocket, 3000);
+      };
+
+      captionsWs.onerror = (err) => {
+        logToConsole('WebSocket error: zoom_captions_server.py may not be running', 'warn');
+        console.error('[WebSocket] Error:', err);
+      };
+
+      captionsWs.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === 'ready') {
+            logToConsole(`Backend ready: DB=${data.captions}, LLM=${data.llm}`, 'info');
+          } else if (data.type === 'caption_received') {
+            // Backend acknowledged the caption
+          } else if (data.type === 'answer') {
+            // Backend response (if triggered by wake word)
+            logToConsole(`[AI Response] ${data.text?.substring(0, 50)}...`, 'info');
+          }
+        } catch (err) {
+          console.error('[WebSocket] Parse error:', err);
+        }
+      };
+    }
+
+    function sendCaptionToBackend(speaker, text) {
+      if (captionsWs?.readyState === WebSocket.OPEN) {
+        captionsWs.send(JSON.stringify({
+          type: 'caption',
+          text: text,
+          speaker: speaker
+        }));
+      }
+      // If WebSocket is not connected, silently fail (DB save still works)
+    }
+
+    // ============================================================
     // Console Logging (on-page)
     // ============================================================
     function logToConsole(message, type = 'info') {
       const consoleLog = document.getElementById('console-log');
+      if (!consoleLog) {
+        // Element not available yet, just log to browser console
+        console.log(`[${type.toUpperCase()}] ${message}`);
+        return;
+      }
       const time = new Date().toLocaleTimeString();
       const line = document.createElement('div');
       line.className = `console-line ${type}`;
@@ -555,7 +622,8 @@
 
     async function getDBStats() {
       const stats = await apiRequest('/db/stats', { method: 'GET' });
-      document.getElementById('db-caption-count').textContent = stats.captionCount;
+      const dbCaptionCountEl = document.getElementById('db-caption-count');
+      if (dbCaptionCountEl) dbCaptionCountEl.textContent = stats.captionCount;
       return stats;
     }
 
@@ -789,6 +857,9 @@
       await saveCaption(currentMeetingId, speaker || '', text, 'transcription');
       await getDBStats();
 
+      // Send to zoom_captions_server.py via WebSocket
+      sendCaptionToBackend(speaker || '', text);
+
       pendingCaption = null;
     }
 
@@ -876,6 +947,7 @@
     // ============================================================
     function addCaptionToUI({ speaker, text }) {
       const captionsEl = document.getElementById('captions');
+      if (!captionsEl) return; // Element not available yet
       const empty = captionsEl.querySelector('.empty-state');
       if (empty) empty.remove();
 
@@ -891,11 +963,13 @@
       captionsEl.scrollTop = captionsEl.scrollHeight;
 
       captionCount++;
-      document.getElementById('caption-count').textContent = `${captionCount} caption${captionCount !== 1 ? 's' : ''}`;
+      const captionCountEl = document.getElementById('caption-count');
+      if (captionCountEl) captionCountEl.textContent = `${captionCount} caption${captionCount !== 1 ? 's' : ''}`;
     }
 
     function addParticipantToUI(name, isHost) {
       const participantsEl = document.getElementById('participants');
+      if (!participantsEl) return; // Element not available yet
       const existing = participantsEl.querySelector(`[data-name="${CSS.escape(name)}"]`);
       if (existing) return;
 
@@ -911,7 +985,9 @@
     }
 
     function updateMeetingInfo({ meetingNumber, userName, meetingId }) {
-      document.getElementById('meeting-info').innerHTML = `
+      const meetingInfoEl = document.getElementById('meeting-info');
+      if (!meetingInfoEl) return; // Element not available yet
+      meetingInfoEl.innerHTML = `
         <div class="info-item">
           <span class="info-label">Meeting ID</span>
           <span class="info-value">${escapeHTML(meetingNumber)}</span>
@@ -933,6 +1009,7 @@
 
     function setStatus(msg, isError = false) {
       const statusEl = document.getElementById('status');
+      if (!statusEl) return; // Element not available yet
       statusEl.textContent = msg;
       statusEl.className = `status-bar${isError ? ' error' : isInMeeting ? ' connected' : ''}`;
     }
@@ -972,11 +1049,16 @@
       await getDBStats();
 
       // Clear UI
-      document.getElementById('captions').innerHTML = '<div class="empty-state">Waiting for captions...</div>';
-      document.getElementById('participants').innerHTML = '';
-      document.getElementById('meeting-info').innerHTML = '<div class="empty-state" style="height: auto; padding: 10px;">No active meeting</div>';
+      const captionsEl = document.getElementById('captions');
+      const participantsEl = document.getElementById('participants');
+      const meetingInfoEl = document.getElementById('meeting-info');
+      const captionCountEl = document.getElementById('caption-count');
+
+      if (captionsEl) captionsEl.innerHTML = '<div class="empty-state">Waiting for captions...</div>';
+      if (participantsEl) participantsEl.innerHTML = '';
+      if (meetingInfoEl) meetingInfoEl.innerHTML = '<div class="empty-state" style="height: auto; padding: 10px;">No active meeting</div>';
       captionCount = 0;
-      document.getElementById('caption-count').textContent = '0 captions';
+      if (captionCountEl) captionCountEl.textContent = '0 captions';
 
       logToConsole('Database cleared', 'info');
     }
@@ -1028,6 +1110,9 @@
 
       // Initialize database stats
       await getDBStats();
+
+      // Connect to zoom_captions_server.py WebSocket
+      connectCaptionsWebSocket();
 
       // Initialize Zoom SDK
       initZoomSDK();
