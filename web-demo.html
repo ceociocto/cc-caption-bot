@@ -580,8 +580,9 @@
           }
 
           try {
-            // Configure Zoom SDK - use local path
-            ZoomMtg.setZoomJSLib('/node_modules/@zoom/meetingsdk/dist/lib', '/av');
+            // Configure Zoom SDK - use absolute URL with origin
+            const resourceUrl = window.location.origin + '/node_modules/@zoom/meetingsdk/dist/lib';
+            ZoomMtg.setZoomJSLib(resourceUrl, '/av');
             ZoomMtg.preLoadWasm();
             ZoomMtg.prepareWebSDK();
 
