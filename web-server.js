@@ -145,6 +145,27 @@ async function handleAPI(req, res) {
       const meetingId = body.meetingId;
       const mergeThresholdMs = 5000; // 5 seconds threshold for merging
 
+      // Filter out AI assistant responses and questions to AI
+      // Skip if speaker is an AI assistant
+      const aiSpeakerPatterns = ['Echo AI', 'AI Assistant', '数字人', 'Digital Human', 'AI', 'Bot'];
+      const lowerSpeaker = speaker.toLowerCase();
+      if (aiSpeakerPatterns.some(pattern => lowerSpeaker.includes(pattern.toLowerCase()))) {
+        console.log(`[DB] Filtered out AI speaker: "${speaker}"`);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, filtered: true, reason: 'AI speaker' }));
+        return;
+      }
+
+      // Skip if text contains wake words or questions to AI
+      const aiWakeWords = ['hey echo', 'echo,', 'echo ', '数字人', 'ai assistant', 'ask ai', 'question for'];
+      const lowerText = text.toLowerCase();
+      if (aiWakeWords.some(word => lowerText.includes(word))) {
+        console.log(`[DB] Filtered out AI wake word question: "${text.substring(0, 50)}..."`);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, filtered: true, reason: 'AI wake word' }));
+        return;
+      }
+
       // Check if we should merge with the last caption
       const lastCaptionResult = db.exec(`
         SELECT id, text, speaker, received_at

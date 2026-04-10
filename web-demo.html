@@ -30,6 +30,215 @@
       overflow: hidden;
     }
 
+    /* Login Page */
+    .login-page {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+
+    .login-page.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .login-container {
+      width: 400px;
+      background: #1a1a1a;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+
+    .login-header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .login-header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #2d8cff;
+      margin-bottom: 8px;
+    }
+
+    .login-header p {
+      font-size: 13px;
+      color: #888;
+    }
+
+    .login-form .form-group {
+      margin-bottom: 16px;
+    }
+
+    .login-form .form-group label {
+      display: block;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    .login-form .form-group input {
+      width: 100%;
+      padding: 10px 12px;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .login-form .form-group input:focus {
+      border-color: #2d8cff;
+    }
+
+    .login-form .form-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .login-form .form-row .form-group {
+      flex: 1;
+    }
+
+    .login-form .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .login-form .btn:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+
+    .login-form .btn-primary {
+      background: linear-gradient(135deg, #2d8cff 0%, #0066cc 100%);
+      color: white;
+      margin-top: 8px;
+    }
+
+    .login-form .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Meeting Page */
+    .meeting-page {
+      display: none;
+      flex-direction: column;
+      height: 100vh;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      pointer-events: none; /* Let clicks pass through to Zoom */
+    }
+
+    .meeting-page.visible {
+      display: flex;
+      opacity: 1;
+    }
+
+    /* Loading state - only show header at top */
+    .meeting-page.loading .header {
+      pointer-events: auto;
+      background: rgba(26, 26, 46, 0.95);
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10000;
+    }
+
+    .meeting-page.loading .main {
+      display: none;
+    }
+
+    /* In meeting state - hide everything, let Zoom take over */
+    .meeting-page.in-meeting {
+      pointer-events: none;
+    }
+
+    .meeting-page.in-meeting .header {
+      display: none;
+    }
+
+    .meeting-page.in-meeting .main {
+      display: none !important;
+    }
+
+    /* Floating toggle button to show/hide sidebar */
+    .sidebar-toggle {
+      position: fixed;
+      left: 10px;
+      bottom: 10px;
+      width: 40px;
+      height: 40px;
+      background: #2d8cff;
+      border: none;
+      border-radius: 50%;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      z-index: 10002;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      transition: all 0.2s;
+    }
+
+    .sidebar-toggle:hover {
+      background: #1a7ad9;
+      transform: scale(1.1);
+    }
+
+    .meeting-page.in-meeting .sidebar-toggle {
+      display: flex;
+    }
+
+    /* Show sidebar when toggle is active */
+    .meeting-page.in-meeting.show-sidebar .main {
+      display: flex !important;
+      pointer-events: auto;
+    }
+
+    .meeting-page.in-meeting.show-sidebar .sidebar-toggle {
+      left: 390px;
+    }
+
+    /* Leave button */
+    .leave-btn {
+      padding: 6px 12px;
+      background: #f44336;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .leave-btn:hover {
+      opacity: 0.8;
+    }
+
     /* Header */
     .header {
       background: #1a1a2e;
@@ -64,58 +273,29 @@
       z-index: 1;
     }
 
+    .meeting-page .main {
+      justify-content: flex-start;
+    }
+
     /* Reset z-index when Zoom SDK is active (websdk-body present) */
     body:has(.websdk-body) .main {
       z-index: auto;
     }
 
-    /* Left Panel: Controls */
-    .left-panel {
-      width: 400px;
-      min-width: 400px;
-      max-width: 600px;
+    /* Sidebar Panel - Single panel with all controls in meeting */
+    .meeting-page .sidebar-panel {
+      width: 380px;
+      height: 100vh;
       background: #1a1a1a;
-      border-radius: 12px;
-      margin: auto;
       display: flex;
       flex-direction: column;
-      overflow-y: auto;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      overflow: hidden;
+      box-shadow: 2px 0 20px rgba(0,0,0,0.5);
     }
 
-    /* Add a title area at top of panel when not in meeting */
-    .left-panel::before {
-      content: '';
-      display: block;
-      height: 4px;
-      background: linear-gradient(90deg, #2d8cff, #00d4aa);
-      border-radius: 12px 12px 0 0;
-    }
-
-    body:not(.in-meeting) .section:last-child {
-      border-bottom: none;
-    }
-
-    /* In meeting state - expand to show captions */
-    body.in-meeting .left-panel {
-      width: 380px;
-      min-width: 380px;
-      max-width: 380px;
-      margin: 0;
-      margin-right: 1px;
-      border-radius: 0;
-      border-right: 1px solid #333;
-      box-shadow: none;
-      z-index: 9999;
-      position: relative;
-    }
-
-    body.in-meeting .left-panel::before {
-      display: none;
-    }
-
-    body.in-meeting .main {
-      justify-content: flex-start;
+    .panel-section {
+      padding: 12px;
+      border-bottom: 1px solid #2a2a2a;
     }
 
     .section {
@@ -212,19 +392,6 @@
     }
     .participant-name { color: #ccc; }
 
-    /* Right Panel: Captions */
-    .right-panel {
-      flex: 1;
-      display: none;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    /* Show captions when in meeting */
-    body.in-meeting .right-panel {
-      display: flex;
-    }
-
     .captions-header {
       padding: 12px 16px;
       display: flex;
@@ -246,6 +413,10 @@
       flex: 1;
       overflow-y: auto;
       padding: 12px 16px;
+    }
+
+    .panel-section .captions-container {
+      padding: 8px 0;
     }
 
     .caption-item {
@@ -302,26 +473,19 @@
     /* Console Log Area */
     .console-log {
       background: #0a0a0a;
-      border-top: 1px solid #333;
-      height: 150px;
+      border: 1px solid #333;
+      border-radius: 4px;
       overflow-y: auto;
       padding: 8px 12px;
       font-family: 'Monaco', 'Menlo', monospace;
       font-size: 11px;
     }
 
-    /* Hide console when not in meeting */
-    body:not(.in-meeting) .console-log {
-      display: none;
+    .panel-section .console-log {
+      border: none;
+      border-radius: 0;
     }
 
-    body.in-meeting .console-log {
-      display: block;
-    }
-
-    .main:not(.in-meeting) {
-      height: 100%;
-    }
     .console-line {
       padding: 2px 0;
       border-bottom: 1px solid #1a1a1a;
@@ -338,87 +502,98 @@
 </head>
 <body>
 
-  <!-- Header -->
-  <div class="header">
-    <h1>Meeting Effectiveness Analyzer</h1>
-    <span class="status-bar" id="status">Initializing...</span>
+  <!-- Login Page -->
+  <div class="login-page" id="login-page">
+    <div class="login-container">
+      <div class="login-header">
+        <h1>Meeting Effectiveness Analyzer</h1>
+        <p>Connect to Zoom and analyze live captions</p>
+      </div>
+      <form class="login-form" id="join-form">
+        <div class="form-group">
+          <label>SDK Key</label>
+          <input type="text" id="sdk-key" required>
+        </div>
+        <div class="form-group">
+          <label>SDK Secret</label>
+          <input type="password" id="sdk-secret" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Meeting Number</label>
+            <input type="text" id="meeting-number" required>
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="text" id="meeting-password" placeholder="Optional">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Display Name</label>
+          <input type="text" id="user-name" value="Meeting Effectiveness Analyzer">
+        </div>
+        <button type="submit" class="btn btn-primary" id="join-btn">Join Meeting</button>
+      </form>
+    </div>
   </div>
 
-  <div class="main">
-    <!-- Left Panel: Controls -->
-    <div class="left-panel">
-      <!-- Join Form -->
-      <div class="section">
-        <div class="section-title">Join Meeting</div>
-        <form id="join-form">
-          <div class="form-group">
-            <label>SDK Key</label>
-            <input type="text" id="sdk-key" required>
-          </div>
-          <div class="form-group">
-            <label>SDK Secret</label>
-            <input type="password" id="sdk-secret" required>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Meeting Number</label>
-              <input type="text" id="meeting-number" required>
-            </div>
-            <div class="form-group">
-              <label>Password</label>
-              <input type="text" id="meeting-password" placeholder="Optional">
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Display Name</label>
-            <input type="text" id="user-name" value="Meeting Effectiveness Analyzer">
-          </div>
-          <button type="submit" class="btn btn-primary" id="join-btn">Join Meeting</button>
-          <button type="button" class="btn btn-secondary" id="export-btn" disabled>Export DB (JSON)</button>
-          <button type="button" class="btn btn-secondary" id="clear-db-btn">Clear Database</button>
-        </form>
-      </div>
+  <!-- Meeting Page -->
+  <div class="meeting-page" id="meeting-page">
+    <!-- Sidebar Toggle Button -->
+    <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle Captions Panel">💬</button>
 
-      <!-- Meeting Info -->
-      <div class="section">
-        <div class="section-title">Meeting Info</div>
-        <div id="meeting-info">
-          <div class="empty-state" style="height: auto; padding: 10px;">No active meeting</div>
-        </div>
-      </div>
-
-      <!-- Participants -->
-      <div class="section" style="flex: 1; overflow-y: auto;">
-        <div class="section-title">Participants</div>
-        <div id="participants"></div>
-      </div>
-
-      <!-- DB Stats -->
-      <div class="section">
-        <div class="section-title">Database</div>
-        <div id="db-stats">
-          <div class="info-item">
-            <span class="info-label">Captions Saved</span>
-            <span class="info-value" id="db-caption-count">0</span>
-          </div>
-        </div>
-      </div>
+    <!-- Header (only visible during loading) -->
+    <div class="header">
+      <h1>Meeting Effectiveness Analyzer</h1>
+      <span class="status-bar" id="status">Initializing...</span>
+      <button class="leave-btn" id="leave-btn">Leave Meeting</button>
     </div>
 
-    <!-- Right Panel: Captions -->
-    <div style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
-      <div class="right-panel" style="flex: 1;">
-        <div class="captions-header">
-          <h2>Live Captions</h2>
-          <span class="caption-count" id="caption-count">0 captions</span>
+    <!-- Sidebar Panel (hidden by default in meeting, shown via toggle) -->
+    <div class="main">
+      <div class="sidebar-panel">
+        <!-- Meeting Info -->
+        <div class="panel-section">
+          <div class="section-title">Meeting Info</div>
+          <div id="meeting-info">
+            <div class="empty-state" style="height: auto; padding: 10px;">No active meeting</div>
+          </div>
         </div>
-        <div class="captions-container" id="captions">
-          <div class="empty-state">Waiting for captions...</div>
+
+        <!-- Participants -->
+        <div class="panel-section" style="flex: 0 0 auto; max-height: 200px; overflow-y: auto;">
+          <div class="section-title">Participants</div>
+          <div id="participants"></div>
+        </div>
+
+        <!-- Captions -->
+        <div class="panel-section" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+          <div class="section-title">Live Captions</div>
+          <div class="captions-container" id="captions" style="flex: 1; overflow-y: auto; padding: 8px 0;">
+            <div class="empty-state">Waiting for captions...</div>
+          </div>
+        </div>
+
+        <!-- Console Log -->
+        <div class="panel-section" style="flex: 0 0 120px; overflow: hidden; display: flex; flex-direction: column;">
+          <div class="section-title">Console</div>
+          <div class="console-log" id="console-log" style="flex: 1; overflow-y: auto;"></div>
+        </div>
+
+        <!-- DB Stats & Actions -->
+        <div class="panel-section">
+          <div class="section-title">Database</div>
+          <div id="db-stats">
+            <div class="info-item">
+              <span class="info-label">Captions Saved</span>
+              <span class="info-value" id="db-caption-count">0</span>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary" id="export-btn" disabled style="margin-top: 10px;">Export DB (JSON)</button>
+          <button type="button" class="btn btn-secondary" id="clear-db-btn" style="margin-top: 6px;">Clear Database</button>
+          <button type="button" class="btn btn-secondary" id="leave-meeting-btn" style="margin-top: 6px; background: #f44336; color: white;">Leave Meeting</button>
         </div>
       </div>
-
-      <!-- Console Log -->
-      <div class="console-log" id="console-log"></div>
     </div>
   </div>
 
@@ -431,9 +606,9 @@
     // ============================================================
     const DEFAULT_CONFIG = {
       sdkKey: 'mnKiro1BSWSK2JH8u2Kn_w',
-      sdkSecret: 'KQsoToTrYxC5WanZNKj4Lz5GlyKX4cBV',
+      sdkSecret: '',
       meetingNumber: '8765399843',
-      meetingPassword: 'c86f82',
+      meetingPassword: '',
       userName: 'Meeting Effectiveness Analyzer'
     };
 
@@ -444,6 +619,68 @@
     let captionCount = 0;
     let isInMeeting = false;
     let ZoomMtg = window.ZoomMtg;
+    let isLoggedIn = false;
+
+    // ============================================================
+    // Page Switching
+    // ============================================================
+    function showMeetingPage(loading = true) {
+      document.getElementById('login-page').classList.add('hidden');
+      const meetingPage = document.getElementById('meeting-page');
+      meetingPage.classList.add('visible');
+      if (loading) {
+        meetingPage.classList.add('loading');
+      }
+    }
+
+    function showFullMeetingInterface() {
+      const meetingPage = document.getElementById('meeting-page');
+      meetingPage.classList.remove('loading');
+      meetingPage.classList.add('in-meeting');
+    }
+
+    function showLoginPage() {
+      document.getElementById('login-page').classList.remove('hidden');
+      const meetingPage = document.getElementById('meeting-page');
+      meetingPage.classList.remove('visible', 'loading', 'in-meeting', 'show-sidebar');
+    }
+
+    function leaveMeeting() {
+      if (ZoomMtg) {
+        try {
+          ZoomMtg.leaveMeeting();
+        } catch (e) {
+          console.error('Error leaving meeting:', e);
+        }
+      }
+      showLoginPage();
+      isInMeeting = false;
+      isLoggedIn = false;
+      currentMeetingId = null;
+
+      // Reset UI
+      const joinBtn = document.getElementById('join-btn');
+      const exportBtn = document.getElementById('export-btn');
+      if (joinBtn) {
+        joinBtn.disabled = false;
+        joinBtn.textContent = 'Join Meeting';
+      }
+      if (exportBtn) exportBtn.disabled = true;
+
+      // Clear meeting UI elements
+      const captionsEl = document.getElementById('captions');
+      const participantsEl = document.getElementById('participants');
+      const meetingInfoEl = document.getElementById('meeting-info');
+      const captionCountEl = document.getElementById('caption-count');
+
+      if (captionsEl) captionsEl.innerHTML = '<div class="empty-state">Waiting for captions...</div>';
+      if (participantsEl) participantsEl.innerHTML = '';
+      if (meetingInfoEl) meetingInfoEl.innerHTML = '<div class="empty-state" style="height: auto; padding: 10px;">No active meeting</div>';
+      captionCount = 0;
+      if (captionCountEl) captionCountEl.textContent = '0 captions';
+
+      setStatus('Ready to join');
+    }
 
     // Caption deduplication and buffering
     const _seenCaptionKeys = new Set();
@@ -709,6 +946,9 @@
         success: () => {
           logToConsole('SDK initialized, joining meeting...', 'info');
 
+          // Hide login page and show loading state (only header visible)
+          showMeetingPage(true);
+
           ZoomMtg.join({
             sdkKey: sdkKey,
             signature: signature,
@@ -721,11 +961,10 @@
               console.log('[ZoomSDK] Join success:', res);
 
               isInMeeting = true;
-              document.body.classList.add('in-meeting');
-              document.querySelector('.main').classList.add('in-meeting');
+              isLoggedIn = true;
+              // Show full meeting interface (captions, participants, etc.)
+              showFullMeetingInterface();
               setStatus('In meeting - waiting for captions');
-              joinBtn.disabled = true;
-              joinBtn.textContent = 'In Meeting';
               exportBtn.disabled = false;
 
               registerMeetingListeners();
@@ -741,7 +980,14 @@
               logToConsole(`1. Verify SDK Key/Secret are correct`, 'warn');
               logToConsole(`2. Ensure meeting is currently active`, 'warn');
               logToConsole(`3. Check meeting number is valid: ${cleanMeetingNumber}`, 'warn');
-              setStatus(`Join failed: ${errorMsg}`, true);
+
+              // Reset to login page
+              showLoginPage();
+
+              // Reset login button state
+              joinBtn.disabled = false;
+              joinBtn.textContent = 'Join Meeting';
+              alert(`Join failed: ${errorMsg}`);
             },
           });
         },
@@ -751,7 +997,14 @@
           const errorMsg = err.errorMessage || err.type || JSON.stringify(err);
           logToConsole(`Init failed: ${errorMsg}`, 'error');
           logToConsole(`Full error details: ${JSON.stringify(err)}`, 'error');
-          setStatus(`Init failed: ${errorMsg}`, true);
+
+          // Reset to login page
+          showLoginPage();
+
+          // Reset login button state
+          joinBtn.disabled = false;
+          joinBtn.textContent = 'Join Meeting';
+          alert(`Init failed: ${errorMsg}`);
         },
       });
     }
@@ -930,11 +1183,26 @@
       if (status === 'disconnect' || status === 'ended' || status === 0) {
         await flushCaptionBuffer();
         setStatus('Meeting ended');
+
+        // Return to login page
+        const meetingPage = document.getElementById('meeting-page');
+        meetingPage.classList.remove('loading', 'in-meeting', 'show-sidebar');
+        showLoginPage();
+
         isInMeeting = false;
-        document.body.classList.remove('in-meeting');
-        document.querySelector('.main').classList.remove('in-meeting');
-        joinBtn.disabled = false;
-        joinBtn.textContent = 'Join Meeting';
+        isLoggedIn = false;
+
+        // Clear UI
+        const captionsEl = document.getElementById('captions');
+        const participantsEl = document.getElementById('participants');
+        const meetingInfoEl = document.getElementById('meeting-info');
+        const captionCountEl = document.getElementById('caption-count');
+
+        if (captionsEl) captionsEl.innerHTML = '<div class="empty-state">Waiting for captions...</div>';
+        if (participantsEl) participantsEl.innerHTML = '';
+        if (meetingInfoEl) meetingInfoEl.innerHTML = '<div class="empty-state" style="height: auto; padding: 10px;">No active meeting</div>';
+        captionCount = 0;
+        if (captionCountEl) captionCountEl.textContent = '0 captions';
 
         if (currentMeetingId) {
           await endMeeting(currentMeetingId);
@@ -1069,6 +1337,8 @@
     const joinBtn = document.getElementById('join-btn');
     const exportBtn = document.getElementById('export-btn');
     const clearDbBtn = document.getElementById('clear-db-btn');
+    const leaveBtn = document.getElementById('leave-btn');
+    const leaveMeetingBtn = document.getElementById('leave-meeting-btn');
 
     document.getElementById('join-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1080,7 +1350,7 @@
       const userName = document.getElementById('user-name').value.trim() || DEFAULT_CONFIG.userName;
 
       if (!sdkKey || !sdkSecret || !meetingNumber) {
-        setStatus('Please fill in all required fields', true);
+        alert('Please fill in all required fields');
         return;
       }
 
@@ -1092,6 +1362,16 @@
 
     exportBtn.addEventListener('click', exportDatabase);
     clearDbBtn.addEventListener('click', clearDatabase);
+    leaveBtn?.addEventListener('click', leaveMeeting);
+    leaveMeetingBtn?.addEventListener('click', leaveMeeting);
+
+    // Sidebar toggle functionality
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const meetingPage = document.getElementById('meeting-page');
+
+    sidebarToggle?.addEventListener('click', () => {
+      meetingPage.classList.toggle('show-sidebar');
+    });
 
     // ============================================================
     // Initialize
